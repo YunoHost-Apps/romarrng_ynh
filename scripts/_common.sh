@@ -34,41 +34,29 @@ romarrng_prepare_data() {
 }
 
 romarrng_install_python_dependencies() {
-	local python_dir="/opt/yunohost/romarrng/python-3.12"
-	local python_bin="$python_dir/bin/python3.12"
-	local python_archive
-	local python_sha256
-	local python_url
-	local python_tmp
+	local runtime_dir="/opt/yunohost/$app"
+	local uv_dir="$runtime_dir/uv"
+	local uv_bin="$uv_dir/uv"
+	local python_dir="$runtime_dir/uv-python"
+	local python_cache_dir
 
-	case "$(dpkg --print-architecture)" in
-		amd64)
-			python_archive="cpython-3.12.14+20260901-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
-			python_sha256="72748da13197c1fb161e3afeef20a6a385ff24f2165e6e2758e47008e7faba4c"
-			;;
-		arm64)
-			python_archive="cpython-3.12.14+20260901-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz"
-			python_sha256="577b4bec0793ad1ff0cbff9adbd0df078eddde38a4c41bf5d83ad381a85ee39d"
-			;;
-		*) ynh_die --message="ROMarrNG does not provide a Python runtime for this architecture: $(dpkg --print-architecture)" ;;
-	esac
+	install -d -o root -g root -m 0755 "$runtime_dir"
+	ynh_setup_source --dest_dir="$uv_dir" --source_id="uv" --full_replace
+	chown -R root:root "$uv_dir"
+	chmod 0755 "$uv_bin"
+	install -d -o root -g root -m 0755 "$python_dir"
+	python_cache_dir="$(mktemp -d /tmp/romarrng-uv-cache.XXXXXX)"
+	UV_CACHE_DIR="$python_cache_dir" UV_PYTHON_INSTALL_DIR="$python_dir" \
+		"$uv_bin" python install 3.12.14
+	rm -rf -- "$python_cache_dir"
 
-	python_tmp="$(mktemp /tmp/romarrng-python.XXXXXX.tar.gz)"
-	python_url="https://github.com/astral-sh/python-build-standalone/releases/download/20260901/$python_archive"
-	if [[ ! -x "$python_bin" ]]; then
-		ynh_script_progression "Installing the pinned Python 3.12 runtime..."
-		curl --fail --location --silent --show-error "$python_url" --output "$python_tmp"
-		echo "$python_sha256  $python_tmp" | sha256sum --check --status \
-			|| ynh_die --message="Downloaded Python runtime failed its SHA-256 check."
-		mkdir -p "$python_dir"
-		tar --extract --gzip --file="$python_tmp" --directory="$python_dir" --strip-components=1
-		rm -f "$python_tmp"
-	fi
-
-	ynh_exec_as_app "$python_bin" -m venv "$install_dir/venv"
-	ynh_hide_warnings ynh_exec_as_app "$install_dir/venv/bin/pip" install \
-		--disable-pip-version-check \
-		--no-cache-dir \
+	ynh_exec_as_app env UV_PYTHON_INSTALL_DIR="$python_dir" "$uv_bin" venv \
+		--python 3.12.14 \
+		--managed-python \
+		"$install_dir/venv"
+	ynh_hide_warnings ynh_exec_as_app env UV_PYTHON_INSTALL_DIR="$python_dir" "$uv_bin" pip install \
+		--python "$install_dir/venv/bin/python" \
+		--no-cache \
 		--requirement "$install_dir/requirements.txt" \
 		"rom-hub @ https://github.com/BlizzHacker/rom-hub/archive/8e46348783546ee03b00e2c933155ba60d29619d.tar.gz"
 }
